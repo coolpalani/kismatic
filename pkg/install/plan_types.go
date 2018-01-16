@@ -505,9 +505,60 @@ type Node struct {
 	KubeletOptions KubeletOptions `yaml:"kubelet,omitempty"`
 }
 
-// Equal returns true of 2 nodes have the same host, IP and InternalIP
+// mapMerge merges two map[string]strings. If both maps have some identical key, the value from the first map provided will be used.
+func mapMerge(l, r map[string]string) map[string]string {
+	ret := make(map[string]string, 0)
+	for k, v := range l {
+		ret[k] = v
+	}
+	for k, v := range r {
+		if _, ok := ret[k]; ok {
+			continue
+		}
+		ret[k] = v
+	}
+	return ret
+}
+
+func merge(l, r []Node) []Node {
+	var ret []Node
+Outer:
+	for i := range l {
+		for j := range r {
+			if l[i].Equal(r[j]) {
+				ret = append(ret, Node{
+					IP:         l[i].IP,
+					InternalIP: l[i].InternalIP,
+					Host:       l[i].Host,
+					Labels:     mapMerge(l[i].Labels, r[j].Labels),
+					KubeletOptions: KubeletOptions{
+						Overrides: mapMerge(l[i].KubeletOptions.Overrides, r[j].KubeletOptions.Overrides),
+					},
+				})
+				//significantly faster than just axing the single element
+				//messes with the order, though.
+				r[len(r)-1], r[j] = r[j], r[len(r)-1]
+				r = r[:len(r)-1]
+				continue Outer
+			}
+		}
+		ret = append(ret, l[i])
+	}
+	return ret
+}
+
+func Merge(new, old NodeGroup) NodeGroup {
+
+	merged := merge(new.Nodes, old.Nodes)
+	return NodeGroup{
+		Nodes:         merged,
+		ExpectedCount: len(merged),
+	}
+}
+
+// Equal returns true of 2 nodes have the same HashCode
 func (node Node) Equal(other Node) bool {
-	return node.Host == other.Host && node.IP == other.IP && node.InternalIP == other.InternalIP
+	return node.HashCode() == other.HashCode()
 }
 
 // HashCode is crude implementation for the Node struct
